@@ -12,4 +12,5 @@ var cfg = config.Load[*Config]()
 
 var secrets struct {
 	TemporalAPIKey string
+	SuperSecretKey string
 }

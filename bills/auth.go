@@ -12,7 +12,7 @@ import (
 func AuthHandler(ctx context.Context, token string) (auth.UID, error) {
 	// Validate the token and look up the user id and user data,
 	// for example by calling Firebase Auth.
-	if token != "superSecretToken" {
+	if token != secrets.SuperSecretKey {
 		return "", &errs.Error{
 			Code:    errs.Unauthenticated,
 			Message: "invalid token",
