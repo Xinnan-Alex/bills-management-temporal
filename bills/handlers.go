@@ -65,7 +65,7 @@ func (s *Service) CreateBill(ctx context.Context, req *CreateBillRequest) (*Crea
 		ID:        billID,
 		TaskQueue: startBillTaskQueue,
 	}
-	_, err = s.client.ExecuteWorkflow(ctx, opts, "StartBillWorkflow", billID, req.CurrencyCode, closeTimeout)
+	_, err = s.client.ExecuteWorkflow(ctx, opts, workflow.StartBillWorkflow, billID, req.CurrencyCode, closeTimeout)
 	if err != nil {
 		return nil, err
 	}
