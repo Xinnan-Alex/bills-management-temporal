@@ -5,6 +5,7 @@ import (
 
 	"encore.app/bills/activities"
 	"encore.app/bills/model"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -31,6 +32,19 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 		"currency", currency,
 	)
 
+	retryPolicy := &temporal.RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    30 * time.Second,
+		MaximumAttempts:    5,
+	}
+
+	activityOpts := workflow.ActivityOptions{
+		StartToCloseTimeout:    30 * time.Second,
+		ScheduleToCloseTimeout: 5 * time.Minute,
+		RetryPolicy:            retryPolicy,
+	}
+
 	// Signal channel for line items
 	lineItemCh := workflow.GetSignalChannel(ctx, AddLineItemSignal)
 
@@ -55,9 +69,7 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 			state.FinalInvoice.ClosedAt = workflow.Now(uctx)
 
 			var inv model.FinalInvoice
-			activityCtx := workflow.WithActivityOptions(uctx, workflow.ActivityOptions{
-				StartToCloseTimeout: time.Second * 30,
-			})
+			activityCtx := workflow.WithActivityOptions(uctx, activityOpts)
 			err := workflow.ExecuteActivity(
 				activityCtx,
 				activities.Ref.FinalizeBillActivity,
@@ -110,9 +122,7 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 			}
 
 			var itemID string
-			activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: time.Second * 30,
-			})
+			activityCtx := workflow.WithActivityOptions(ctx, activityOpts)
 			err := workflow.ExecuteActivity(
 				activityCtx,
 				activities.Ref.AddItemLineActivity,
@@ -165,9 +175,7 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 			state.FinalInvoice.ClosedAt = workflow.Now(ctx)
 
 			// Finalize to database (same as manual close)
-			activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: time.Second * 30,
-			})
+			activityCtx := workflow.WithActivityOptions(ctx, activityOpts)
 			err := workflow.ExecuteActivity(
 				activityCtx,
 				activities.Ref.FinalizeBillActivity,
