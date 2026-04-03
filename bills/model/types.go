@@ -21,6 +21,29 @@ type FinalLineItem struct {
 	CreatedAt   time.Time
 }
 
+// StartBillWorkflowInput is the single input struct for StartBillWorkflow
+type StartBillWorkflowInput struct {
+	BillID       string
+	CurrencyCode string
+	CloseTimeout time.Duration
+}
+
+// FinalizeBillActivityInput is the single input struct for FinalizeBillActivity
+type FinalizeBillActivityInput struct {
+	BillID       string
+	CurrencyCode string
+	LineItems    []FinalLineItem
+}
+
+// AddItemLineActivityInput is the single input struct for AddItemLineActivity
+type AddItemLineActivityInput struct {
+	BillID         string
+	AmountMinor    int64
+	CurrencyCode   string
+	Description    string
+	IdempotencyKey string
+}
+
 // AddItemRequest is the signal payload for adding a line item
 type AddItemRequest struct {
 	Description    string

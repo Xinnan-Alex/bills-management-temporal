@@ -32,14 +32,22 @@ func TestUnitTestSuite(t *testing.T) {
 }
 
 func (s *BillWorkflowSuite) Test_AutoClose_NoItems() {
-	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, "bill-1", "GEL", []model.FinalLineItem(nil)).Return(model.FinalInvoice{
+	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, model.FinalizeBillActivityInput{
+		BillID:       "bill-1",
+		CurrencyCode: "GEL",
+		LineItems:    nil,
+	}).Return(model.FinalInvoice{
 		BillID:       "bill-1",
 		CurrencyCode: "GEL",
 		TotalMinor:   0,
 		ClosedAt:     time.Now(),
 	}, nil)
 
-	s.env.ExecuteWorkflow(StartBillWorkflow, "bill-1", "GEL", 1*time.Hour)
+	s.env.ExecuteWorkflow(StartBillWorkflow, model.StartBillWorkflowInput{
+		BillID:       "bill-1",
+		CurrencyCode: "GEL",
+		CloseTimeout: 1 * time.Hour,
+	})
 
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
@@ -48,11 +56,17 @@ func (s *BillWorkflowSuite) Test_AutoClose_NoItems() {
 // Test 2: Add line items then close manually via update
 func (s *BillWorkflowSuite) Test_ManualClose_WithItems() {
 	// Mock AddItemLineActivity
-	s.env.OnActivity(activities.Ref.AddItemLineActivity, mock.Anything, "bill-1", int64(500), "GEL", "Test item", "key-1").
+	s.env.OnActivity(activities.Ref.AddItemLineActivity, mock.Anything, model.AddItemLineActivityInput{
+		BillID:         "bill-1",
+		AmountMinor:    500,
+		CurrencyCode:   "GEL",
+		Description:    "Test item",
+		IdempotencyKey: "key-1",
+	}).
 		Return("item-uuid-1", nil)
 
 	// Mock FinalizeBillActivity
-	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, "bill-1", "GEL", mock.Anything).
+	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, mock.Anything).
 		Return(model.FinalInvoice{
 			BillID:       "bill-1",
 			CurrencyCode: "GEL",
@@ -84,7 +98,11 @@ func (s *BillWorkflowSuite) Test_ManualClose_WithItems() {
 		})
 	}, time.Millisecond*100)
 
-	s.env.ExecuteWorkflow(StartBillWorkflow, "bill-1", "GEL", 1*time.Hour)
+	s.env.ExecuteWorkflow(StartBillWorkflow, model.StartBillWorkflowInput{
+		BillID:       "bill-1",
+		CurrencyCode: "GEL",
+		CloseTimeout: 1 * time.Hour,
+	})
 
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
@@ -93,10 +111,16 @@ func (s *BillWorkflowSuite) Test_ManualClose_WithItems() {
 // Test 3: Duplicate idempotency key is ignored (in-memory dedup)
 func (s *BillWorkflowSuite) Test_DuplicateLineItem_Ignored() {
 	// Only expect ONE call to AddItemLineActivity despite two signals
-	s.env.OnActivity(activities.Ref.AddItemLineActivity, mock.Anything, "bill-1", int64(100), "USD", "Item", "dup-key").
+	s.env.OnActivity(activities.Ref.AddItemLineActivity, mock.Anything, model.AddItemLineActivityInput{
+		BillID:         "bill-1",
+		AmountMinor:    100,
+		CurrencyCode:   "USD",
+		Description:    "Item",
+		IdempotencyKey: "dup-key",
+	}).
 		Return("item-1", nil).Once()
 
-	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, "bill-1", "USD", mock.Anything).
+	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, mock.Anything).
 		Return(model.FinalInvoice{
 			BillID:       "bill-1",
 			CurrencyCode: "USD",
@@ -118,7 +142,11 @@ func (s *BillWorkflowSuite) Test_DuplicateLineItem_Ignored() {
 	}, time.Millisecond*50)
 
 	// Let the timer fire to auto-close
-	s.env.ExecuteWorkflow(StartBillWorkflow, "bill-1", "USD", 1*time.Second)
+	s.env.ExecuteWorkflow(StartBillWorkflow, model.StartBillWorkflowInput{
+		BillID:       "bill-1",
+		CurrencyCode: "USD",
+		CloseTimeout: 1 * time.Second,
+	})
 
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
@@ -139,7 +167,11 @@ func (s *BillWorkflowSuite) Test_AddItemActivity_Failure() {
 	}, 0)
 
 	// Auto-close via short timer
-	s.env.ExecuteWorkflow(StartBillWorkflow, "bill-1", "GEL", 1*time.Second)
+	s.env.ExecuteWorkflow(StartBillWorkflow, model.StartBillWorkflowInput{
+		BillID:       "bill-1",
+		CurrencyCode: "GEL",
+		CloseTimeout: 1 * time.Second,
+	})
 
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())

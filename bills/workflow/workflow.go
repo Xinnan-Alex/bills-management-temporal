@@ -12,7 +12,11 @@ var (
 	AddLineItemSignal = "AddLineItem"
 )
 
-func StartBillWorkflow(ctx workflow.Context, billID string, currency string, closeTimeout time.Duration) error {
+func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput) error {
+	billID := input.BillID
+	currency := input.CurrencyCode
+	closeTimeout := input.CloseTimeout
+
 	state := model.BillState{
 		Status:       "OPEN",
 		RunningTotal: 0,
@@ -57,9 +61,11 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 			err := workflow.ExecuteActivity(
 				activityCtx,
 				activities.Ref.FinalizeBillActivity,
-				billID,
-				currency,
-				state.FinalInvoice.LineItems,
+				model.FinalizeBillActivityInput{
+					BillID:       billID,
+					CurrencyCode: currency,
+					LineItems:    state.FinalInvoice.LineItems,
+				},
 			).Get(uctx, &inv)
 
 			if err != nil {
@@ -110,11 +116,13 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 			err := workflow.ExecuteActivity(
 				activityCtx,
 				activities.Ref.AddItemLineActivity,
-				billID,
-				req.AmountMinor,
-				currency,
-				req.Description,
-				req.IdempotencyKey,
+				model.AddItemLineActivityInput{
+					BillID:         billID,
+					AmountMinor:    req.AmountMinor,
+					CurrencyCode:   currency,
+					Description:    req.Description,
+					IdempotencyKey: req.IdempotencyKey,
+				},
 			).Get(ctx, &itemID)
 
 			if err != nil {
@@ -163,9 +171,11 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 			err := workflow.ExecuteActivity(
 				activityCtx,
 				activities.Ref.FinalizeBillActivity,
-				billID,
-				currency,
-				state.FinalInvoice.LineItems,
+				model.FinalizeBillActivityInput{
+					BillID:       billID,
+					CurrencyCode: currency,
+					LineItems:    state.FinalInvoice.LineItems,
+				},
 			).Get(ctx, &state.FinalInvoice)
 
 			if err != nil {

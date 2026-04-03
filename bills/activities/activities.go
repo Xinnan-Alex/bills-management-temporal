@@ -17,9 +17,9 @@ type Activities struct {
 // This enables compile-time type checking of activity invocations.
 var Ref *Activities
 
-func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, currencyCode string, lineItems []model.FinalLineItem) (model.FinalInvoice, error) {
-	repoItems := make([]repository.LineItem, len(lineItems))
-	for i, item := range lineItems {
+func (a *Activities) FinalizeBillActivity(ctx context.Context, input model.FinalizeBillActivityInput) (model.FinalInvoice, error) {
+	repoItems := make([]repository.LineItem, len(input.LineItems))
+	for i, item := range input.LineItems {
 		repoItems[i] = repository.LineItem{
 			ID:          item.ID,
 			AmountMinor: item.AmountMinor,
@@ -28,7 +28,7 @@ func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, cu
 		}
 	}
 
-	bill, err := a.Repo.CloseBill(ctx, billID, currencyCode, repoItems)
+	bill, err := a.Repo.CloseBill(ctx, input.BillID, input.CurrencyCode, repoItems)
 	if err != nil {
 		return model.FinalInvoice{}, err
 	}
@@ -57,6 +57,6 @@ func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, cu
 	}, nil
 }
 
-func (a *Activities) AddItemLineActivity(ctx context.Context, billID string, amountMinor int64, currencyCode string, description string, idempotencyKey string) (string, error) {
-	return a.Repo.AddLineItem(ctx, billID, amountMinor, currencyCode, description, idempotencyKey)
+func (a *Activities) AddItemLineActivity(ctx context.Context, input model.AddItemLineActivityInput) (string, error) {
+	return a.Repo.AddLineItem(ctx, input.BillID, input.AmountMinor, input.CurrencyCode, input.Description, input.IdempotencyKey)
 }

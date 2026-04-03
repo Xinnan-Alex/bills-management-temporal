@@ -32,7 +32,11 @@ func TestFinalizeBillActivity(t *testing.T) {
 		{ID: "li-2", AmountMinor: 2500, Description: "Platform fee"},
 	}
 
-	inv, err := act.FinalizeBillActivity(ctx, billID, "USD", lineItems)
+	inv, err := act.FinalizeBillActivity(ctx, model.FinalizeBillActivityInput{
+		BillID:       billID,
+		CurrencyCode: "USD",
+		LineItems:    lineItems,
+	})
 	if err != nil {
 		t.Fatalf("FinalizeBillActivity failed: %v", err)
 	}
@@ -64,7 +68,11 @@ func TestFinalizeBillActivity_EmptyLineItems(t *testing.T) {
 		t.Fatalf("StoreBill failed: %v", err)
 	}
 
-	inv, err := act.FinalizeBillActivity(ctx, billID, "GEL", nil)
+	inv, err := act.FinalizeBillActivity(ctx, model.FinalizeBillActivityInput{
+		BillID:       billID,
+		CurrencyCode: "GEL",
+		LineItems:    nil,
+	})
 	if err != nil {
 		t.Fatalf("FinalizeBillActivity failed: %v", err)
 	}
@@ -90,7 +98,13 @@ func TestAddItemLineActivity(t *testing.T) {
 		t.Fatalf("StoreBill failed: %v", err)
 	}
 
-	itemID, err := act.AddItemLineActivity(ctx, billID, 750, "USD", "Delivery charge", "idem-1")
+	itemID, err := act.AddItemLineActivity(ctx, model.AddItemLineActivityInput{
+		BillID:         billID,
+		AmountMinor:    750,
+		CurrencyCode:   "USD",
+		Description:    "Delivery charge",
+		IdempotencyKey: "idem-1",
+	})
 	if err != nil {
 		t.Fatalf("AddItemLineActivity failed: %v", err)
 	}
@@ -123,12 +137,24 @@ func TestAddItemLineActivity_Idempotent(t *testing.T) {
 		t.Fatalf("StoreBill failed: %v", err)
 	}
 
-	id1, err := act.AddItemLineActivity(ctx, billID, 500, "USD", "Fee", "same-key")
+	id1, err := act.AddItemLineActivity(ctx, model.AddItemLineActivityInput{
+		BillID:         billID,
+		AmountMinor:    500,
+		CurrencyCode:   "USD",
+		Description:    "Fee",
+		IdempotencyKey: "same-key",
+	})
 	if err != nil {
 		t.Fatalf("first call failed: %v", err)
 	}
 
-	id2, err := act.AddItemLineActivity(ctx, billID, 500, "USD", "Fee", "same-key")
+	id2, err := act.AddItemLineActivity(ctx, model.AddItemLineActivityInput{
+		BillID:         billID,
+		AmountMinor:    500,
+		CurrencyCode:   "USD",
+		Description:    "Fee",
+		IdempotencyKey: "same-key",
+	})
 	if err != nil {
 		t.Fatalf("duplicate call failed: %v", err)
 	}
