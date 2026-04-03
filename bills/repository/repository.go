@@ -109,12 +109,13 @@ func (r *Repository) CloseBill(ctx context.Context, billID string, currencyCode 
 		totalMinor += item.AmountMinor
 	}
 
-	now := time.Now()
-	_, err := r.db.Exec(ctx, `
+	var closedAt time.Time
+	err := r.db.QueryRow(ctx, `
 		UPDATE bills
-		SET status = $1, closed_at = $2, closed_total_minor = $3, updated_at = $2
-		WHERE id = $4
-	`, "CLOSED", now, totalMinor, billID)
+		SET status = $1, closed_at = NOW(), closed_total_minor = $2, updated_at = NOW()
+		WHERE id = $3
+		RETURNING closed_at
+	`, "CLOSED", totalMinor, billID).Scan(&closedAt)
 	if err != nil {
 		return Bill{}, err
 	}
@@ -124,7 +125,7 @@ func (r *Repository) CloseBill(ctx context.Context, billID string, currencyCode 
 		CurrencyCode: currencyCode,
 		Status:       "CLOSED",
 		TotalMinor:   totalMinor,
-		ClosedAt:     &now,
+		ClosedAt:     &closedAt,
 		LineItems:    lineItems,
 	}, nil
 }
