@@ -52,7 +52,7 @@ type CloseBillLineItem struct {
 
 // CreateBill creates a new bill and starts a Temporal workflow
 //
-// encore:api public method=POST path=/v1/bills
+// encore:api auth method=POST path=/v1/bills
 func (s *Service) CreateBill(ctx context.Context, req *CreateBillRequest) (*CreateBillResponse, error) {
 	billID, err := s.repository.StoreBill(ctx, req.CurrencyCode)
 	if err != nil {
@@ -82,7 +82,7 @@ func (s *Service) CreateBill(ctx context.Context, req *CreateBillRequest) (*Crea
 
 // CloseBill closes an open bill by sending an update to the Temporal workflow
 //
-// encore:api public method=POST path=/v1/bills/:id/close
+// encore:api auth method=POST path=/v1/bills/:id/close
 func (s *Service) CloseBill(ctx context.Context, id string) (*CloseBillResponse, error) {
 	updateHandler, err := s.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
 		WorkflowID:   id,
@@ -145,7 +145,7 @@ func (r *AddLineItemRequest) Validate() error {
 
 // AddItemIntoBill sends a signal to add an item to an open bill
 //
-// encore:api public method=POST path=/v1/bills/:billID/line-items
+// encore:api auth method=POST path=/v1/bills/:billID/line-items
 func (s *Service) AddItemIntoBill(ctx context.Context, billID string, req *AddLineItemRequest) error {
 	err := s.client.SignalWorkflow(ctx, billID, "", workflow.AddLineItemSignal, model.AddItemRequest{
 		Description:    req.Description,
@@ -185,7 +185,7 @@ type GetBillLineItem struct {
 
 // GetBill retrieves an open or closed bill
 //
-// encore:api public method=GET path=/v1/bills/:billID
+// encore:api auth method=GET path=/v1/bills/:billID
 func (s *Service) GetBill(ctx context.Context, billID string) (*GetBillResponse, error) {
 	bill, err := s.repository.GetBill(ctx, billID)
 	if err != nil {
@@ -250,7 +250,7 @@ func (r *ListBillsRequest) Validate() error {
 
 // ListBills retrieves bills, optionally filtered by status
 //
-// encore:api public method=GET path=/v1/bills
+// encore:api auth method=GET path=/v1/bills
 func (s *Service) ListBills(ctx context.Context, req *ListBillsRequest) (*ListBillsResponse, error) {
 	bills, err := s.repository.ListBills(ctx, req.Status)
 	if err != nil {
