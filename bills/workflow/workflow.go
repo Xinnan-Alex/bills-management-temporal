@@ -74,6 +74,8 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 	// Auto-close after configured timeout
 	closeTimer := workflow.NewTimer(ctx, closeTimeout)
 
+	var autoCloseErr error
+
 	for state.Status == "OPEN" {
 		selector := workflow.NewSelector(ctx)
 
@@ -168,6 +170,7 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 
 			if err != nil {
 				logger.Error("Failed to finalize bill on auto-close", "billID", billID, "error", err)
+				autoCloseErr = err
 			}
 		})
 
@@ -182,6 +185,20 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 		selector.Select(ctx)
 	}
 
+	// Drain any buffered signals that arrived before the workflow closed
+	for {
+		var req model.AddItemRequest
+		ok := lineItemCh.ReceiveAsync(&req)
+		if !ok {
+			break
+		}
+		logger.Warn("Discarding line item received after bill closed",
+			"billID", billID,
+			"idempotencyKey", req.IdempotencyKey,
+			"amountMinor", req.AmountMinor,
+		)
+	}
+
 	workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
-	return nil
+	return autoCloseErr
 }
