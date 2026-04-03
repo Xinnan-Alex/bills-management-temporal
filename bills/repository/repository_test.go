@@ -1,4 +1,4 @@
-package bills
+package repository
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 
 func TestStoreBill(t *testing.T) {
 	ctx := context.Background()
-	r := NewRepository(billsDB)
+	r := NewRepository()
 
 	billID, err := r.StoreBill(ctx, "USD")
 	if err != nil {
@@ -34,7 +34,7 @@ func TestStoreBill(t *testing.T) {
 
 func TestAddLineItem(t *testing.T) {
 	ctx := context.Background()
-	r := NewRepository(billsDB)
+	r := NewRepository()
 
 	billID, err := r.StoreBill(ctx, "GEL")
 	if err != nil {
@@ -66,7 +66,7 @@ func TestAddLineItem(t *testing.T) {
 
 func TestAddLineItem_IdempotencyPreventsDoubleCount(t *testing.T) {
 	ctx := context.Background()
-	r := NewRepository(billsDB)
+	r := NewRepository()
 
 	billID, err := r.StoreBill(ctx, "USD")
 	if err != nil {
@@ -106,7 +106,7 @@ func TestAddLineItem_IdempotencyPreventsDoubleCount(t *testing.T) {
 
 func TestCloseBill(t *testing.T) {
 	ctx := context.Background()
-	r := NewRepository(billsDB)
+	r := NewRepository()
 
 	billID, err := r.StoreBill(ctx, "USD")
 	if err != nil {
@@ -156,7 +156,7 @@ func TestCloseBill(t *testing.T) {
 
 func TestGetBill_NotFound(t *testing.T) {
 	ctx := context.Background()
-	r := NewRepository(billsDB)
+	r := NewRepository()
 
 	_, err := r.GetBill(ctx, "00000000-0000-0000-0000-000000000000")
 	if err == nil {
@@ -166,7 +166,7 @@ func TestGetBill_NotFound(t *testing.T) {
 
 func TestListBills(t *testing.T) {
 	ctx := context.Background()
-	r := NewRepository(billsDB)
+	r := NewRepository()
 
 	// Create an open bill
 	openID, err := r.StoreBill(ctx, "USD")

@@ -4,13 +4,19 @@ import (
 	"context"
 	"time"
 
+	"encore.app/bills/repository"
 	"encore.app/bills/workflow"
 )
 
-func FinalizeBillActivity(ctx context.Context, billID string, currencyCode string, lineItems []workflow.FinalLineItem) (workflow.FinalInvoice, error) {
-	repoItems := make([]LineItem, len(lineItems))
+// Activities holds dependencies for Temporal activities
+type Activities struct {
+	repo *repository.Repository
+}
+
+func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, currencyCode string, lineItems []workflow.FinalLineItem) (workflow.FinalInvoice, error) {
+	repoItems := make([]repository.LineItem, len(lineItems))
 	for i, item := range lineItems {
-		repoItems[i] = LineItem{
+		repoItems[i] = repository.LineItem{
 			ID:          item.ID,
 			AmountMinor: item.AmountMinor,
 			Description: item.Description,
@@ -18,7 +24,7 @@ func FinalizeBillActivity(ctx context.Context, billID string, currencyCode strin
 		}
 	}
 
-	bill, err := repo.CloseBill(ctx, billID, currencyCode, repoItems)
+	bill, err := a.repo.CloseBill(ctx, billID, currencyCode, repoItems)
 	if err != nil {
 		return workflow.FinalInvoice{}, err
 	}
@@ -47,6 +53,6 @@ func FinalizeBillActivity(ctx context.Context, billID string, currencyCode strin
 	}, nil
 }
 
-func AddItemLineActivity(ctx context.Context, billID string, amountMinor int64, currencyCode string, description string, idempotencyKey string) (string, error) {
-	return repo.AddLineItem(ctx, billID, amountMinor, currencyCode, description, idempotencyKey)
+func (a *Activities) AddItemLineActivity(ctx context.Context, billID string, amountMinor int64, currencyCode string, description string, idempotencyKey string) (string, error) {
+	return a.repo.AddLineItem(ctx, billID, amountMinor, currencyCode, description, idempotencyKey)
 }

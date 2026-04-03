@@ -1,4 +1,4 @@
-package bills
+package repository
 
 import (
 	"context"
@@ -7,6 +7,11 @@ import (
 	"encore.dev/storage/sqldb"
 	"github.com/google/uuid"
 )
+
+// Database for bills service
+var billsDB = sqldb.NewDatabase("bills", sqldb.DatabaseConfig{
+	Migrations: "./migrations",
+})
 
 // Bill represents a bill in any state (open or closed)
 type Bill struct {
@@ -33,9 +38,9 @@ type Repository struct {
 	db *sqldb.Database
 }
 
-// NewRepository creates a new repository instance
-func NewRepository(db *sqldb.Database) *Repository {
-	return &Repository{db: db}
+// NewRepository creates a new repository instance using the package-level database
+func NewRepository() *Repository {
+	return &Repository{db: billsDB}
 }
 
 // StoreBill saves a bill to the database with an auto-generated ID

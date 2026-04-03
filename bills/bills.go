@@ -5,9 +5,9 @@ import (
 	"crypto/tls"
 	"fmt"
 
+	"encore.app/bills/repository"
 	"encore.app/bills/workflow"
 	"encore.dev"
-	"encore.dev/storage/sqldb"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 )
@@ -15,18 +15,13 @@ import (
 var (
 	envName            = encore.Meta().Environment.Name
 	startBillTaskQueue = envName + "-startBill"
-	// Database for bills service
-	billsDB = sqldb.NewDatabase("bills", sqldb.DatabaseConfig{
-		Migrations: "./migrations",
-	})
-	repo *Repository
 )
 
 // encore:service
 type Service struct {
 	client     client.Client
 	worker     worker.Worker
-	repository *Repository
+	repository *repository.Repository
 }
 
 // initService initializes the bills service with Temporal client and worker
@@ -55,16 +50,19 @@ func initService() (*Service, error) {
 		return nil, fmt.Errorf("create temporal client: %v", err)
 	}
 
+	// Create repository BEFORE starting worker (fixes init order bug)
+	repo := repository.NewRepository()
+
+	// Create activities struct with repository dependency
+	activities := &Activities{repo: repo}
+
 	w := worker.New(c, startBillTaskQueue, worker.Options{})
 	w.RegisterWorkflow(workflow.StartBillWorkflow)
-	w.RegisterActivity(AddItemLineActivity)
-	w.RegisterActivity(FinalizeBillActivity)
+	w.RegisterActivity(activities)
 
 	if err := w.Start(); err != nil {
 		return nil, fmt.Errorf("start temporal worker: %v", err)
 	}
-
-	repo = NewRepository(billsDB)
 
 	return &Service{
 		client:     c,
