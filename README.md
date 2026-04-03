@@ -75,6 +75,8 @@ Temporal orchestrates each bill as a long-running, durable workflow:
 
 Base URL: `http://localhost:4000` (local development)
 
+All endpoints require authentication via the `Authorization` header with a valid token.
+
 ### Create a Bill
 
 ```
@@ -219,24 +221,30 @@ GET /v1/bills?status=OPEN
 
 ```
 fees-api/
-├── encore.app                          # Encore application config
+├── encore.app                              # Encore application config
 ├── go.mod
 ├── bills/
-│   ├── bills.go                        # Service init, Temporal client/worker setup
-│   ├── handlers.go                     # API endpoints and request/response types
-│   ├── repository.go                   # Database operations and domain types
-│   ├── activity.go                     # Temporal activity implementations
-│   ├── config.go                       # Encore config struct and secrets
-│   ├── config.cue                      # Environment-specific configuration
-│   ├── handlers_test.go                # Request validation tests
-│   ├── repository_test.go              # Database operation tests
-│   ├── migrations/
-│   │   ├── 1_create_bills_table.up.sql
-│   │   └── 2_create_bill_line_items_table.up.sql
+│   ├── auth.go                             # Auth handler (token-based authentication)
+│   ├── auth_test.go                        # Auth handler tests
+│   ├── bills.go                            # Service init, Temporal client/worker setup
+│   ├── config.go                           # Encore config struct and secrets
+│   ├── config.cue                          # Environment-specific configuration
+│   ├── handlers.go                         # API endpoints and request/response types
+│   ├── handlers_test.go                    # Handler and validation tests
+│   ├── activities/
+│   │   ├── activities.go                   # Temporal activity implementations
+│   │   └── activities_test.go              # Activity integration tests
+│   ├── model/
+│   │   └── types.go                        # Shared domain types (inputs, state, invoice)
+│   ├── repository/
+│   │   ├── repository.go                   # Database operations and domain types
+│   │   ├── repository_test.go              # Database operation tests
+│   │   └── migrations/
+│   │       ├── 1_create_bills_table.up.sql
+│   │       └── 2_create_bill_line_items_table.up.sql
 │   └── workflow/
-│       ├── workflow.go                 # Temporal workflow definition
-│       ├── types.go                    # Workflow types (signals, state, invoice)
-│       └── workflow_test.go            # Workflow unit tests (testsuite)
+│       ├── workflow.go                     # Temporal workflow definition
+│       └── workflow_test.go                # Workflow unit tests (testsuite)
 ```
 
 ## Running Locally
@@ -259,6 +267,22 @@ encore run
 
 The API is available at `http://localhost:4000`. Encore dashboard at `http://localhost:9400`.
 
+### Set Up Authentication
+
+All API endpoints require a valid token in the `Authorization` header. For local development, create a `.secrets.local.cue` file in the project root:
+
+```cue
+SuperSecretKey: "abc123"
+```
+
+Then pass the token in requests:
+
+```bash
+curl -H "Authorization: Bearer abc123" http://localhost:4000/v1/bills
+```
+
+> **Note:** `.secrets.local.cue` is gitignored and never committed. For cloud environments, use `encore secret set --type production SuperSecretKey`.
+
 ### Run Tests
 
 ```bash
@@ -277,4 +301,4 @@ go test -v ./bills/workflow/ -count=1
 | `TemporalServer` | `localhost:7233` (local) | Temporal cluster address |
 | `NameSpace` | `default` (local) | Temporal namespace |
 
-Cloud values are configured in `bills/config.cue`. Secrets (`TemporalAPIKey`) are managed via `encore secret set`.
+Cloud values are configured in `bills/config.cue`. Secrets (`TemporalAPIKey`, `SuperSecretKey`) are managed via `encore secret set` for cloud environments, or `.secrets.local.cue` for local development.
