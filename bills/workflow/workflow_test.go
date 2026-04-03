@@ -1,25 +1,16 @@
 package workflow
 
 import (
-	"context"
 	"testing"
 	"time"
 
+	"encore.app/bills/activities"
+	"encore.app/bills/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
 )
-
-// Stubs so the test env can resolve string-based activity names.
-// OnActivity mocks override these at runtime.
-func FinalizeBillActivity(ctx context.Context, billID string, currencyCode string, lineItems []FinalLineItem) (FinalInvoice, error) {
-	return FinalInvoice{}, nil
-}
-
-func AddItemLineActivity(ctx context.Context, billID string, amountMinor int64, currencyCode string, description string, idempotencyKey string) (string, error) {
-	return "", nil
-}
 
 type BillWorkflowSuite struct {
 	suite.Suite
@@ -29,8 +20,7 @@ type BillWorkflowSuite struct {
 
 func (s *BillWorkflowSuite) SetupTest() {
 	s.env = s.NewTestWorkflowEnvironment()
-	s.env.RegisterActivity(FinalizeBillActivity)
-	s.env.RegisterActivity(AddItemLineActivity)
+	s.env.RegisterActivity(&activities.Activities{})
 }
 
 func (s *BillWorkflowSuite) AfterTest(suiteName, testName string) {
@@ -42,7 +32,7 @@ func TestUnitTestSuite(t *testing.T) {
 }
 
 func (s *BillWorkflowSuite) Test_AutoClose_NoItems() {
-	s.env.OnActivity("FinalizeBillActivity", mock.Anything, "bill-1", "GEL", []FinalLineItem(nil)).Return(FinalInvoice{
+	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, "bill-1", "GEL", []model.FinalLineItem(nil)).Return(model.FinalInvoice{
 		BillID:       "bill-1",
 		CurrencyCode: "GEL",
 		TotalMinor:   0,
@@ -58,16 +48,16 @@ func (s *BillWorkflowSuite) Test_AutoClose_NoItems() {
 // Test 2: Add line items then close manually via update
 func (s *BillWorkflowSuite) Test_ManualClose_WithItems() {
 	// Mock AddItemLineActivity
-	s.env.OnActivity("AddItemLineActivity", mock.Anything, "bill-1", int64(500), "GEL", "Test item", "key-1").
+	s.env.OnActivity(activities.Ref.AddItemLineActivity, mock.Anything, "bill-1", int64(500), "GEL", "Test item", "key-1").
 		Return("item-uuid-1", nil)
 
 	// Mock FinalizeBillActivity
-	s.env.OnActivity("FinalizeBillActivity", mock.Anything, "bill-1", "GEL", mock.Anything).
-		Return(FinalInvoice{
+	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, "bill-1", "GEL", mock.Anything).
+		Return(model.FinalInvoice{
 			BillID:       "bill-1",
 			CurrencyCode: "GEL",
 			TotalMinor:   500,
-			LineItems: []FinalLineItem{
+			LineItems: []model.FinalLineItem{
 				{ID: "item-uuid-1", AmountMinor: 500, Description: "Test item"},
 			},
 			ClosedAt: time.Now(),
@@ -75,7 +65,7 @@ func (s *BillWorkflowSuite) Test_ManualClose_WithItems() {
 
 	// Send a signal to add a line item, then send an update to close
 	s.env.RegisterDelayedCallback(func() {
-		s.env.SignalWorkflow("AddLineItem", AddItemRequest{
+		s.env.SignalWorkflow("AddLineItem", model.AddItemRequest{
 			Description:    "Test item",
 			AmountMinor:    500,
 			IdempotencyKey: "key-1",
@@ -87,7 +77,7 @@ func (s *BillWorkflowSuite) Test_ManualClose_WithItems() {
 			OnAccept: func() {},
 			OnComplete: func(result interface{}, err error) {
 				s.NoError(err)
-				inv := result.(FinalInvoice)
+				inv := result.(model.FinalInvoice)
 				s.Equal(int64(500), inv.TotalMinor)
 				s.Equal("bill-1", inv.BillID)
 			},
@@ -103,11 +93,11 @@ func (s *BillWorkflowSuite) Test_ManualClose_WithItems() {
 // Test 3: Duplicate idempotency key is ignored (in-memory dedup)
 func (s *BillWorkflowSuite) Test_DuplicateLineItem_Ignored() {
 	// Only expect ONE call to AddItemLineActivity despite two signals
-	s.env.OnActivity("AddItemLineActivity", mock.Anything, "bill-1", int64(100), "USD", "Item", "dup-key").
+	s.env.OnActivity(activities.Ref.AddItemLineActivity, mock.Anything, "bill-1", int64(100), "USD", "Item", "dup-key").
 		Return("item-1", nil).Once()
 
-	s.env.OnActivity("FinalizeBillActivity", mock.Anything, "bill-1", "USD", mock.Anything).
-		Return(FinalInvoice{
+	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, "bill-1", "USD", mock.Anything).
+		Return(model.FinalInvoice{
 			BillID:       "bill-1",
 			CurrencyCode: "USD",
 			TotalMinor:   100,
@@ -116,13 +106,13 @@ func (s *BillWorkflowSuite) Test_DuplicateLineItem_Ignored() {
 
 	// Send duplicate signals
 	s.env.RegisterDelayedCallback(func() {
-		s.env.SignalWorkflow("AddLineItem", AddItemRequest{
+		s.env.SignalWorkflow("AddLineItem", model.AddItemRequest{
 			Description: "Item", AmountMinor: 100, IdempotencyKey: "dup-key",
 		})
 	}, 0)
 
 	s.env.RegisterDelayedCallback(func() {
-		s.env.SignalWorkflow("AddLineItem", AddItemRequest{
+		s.env.SignalWorkflow("AddLineItem", model.AddItemRequest{
 			Description: "Item", AmountMinor: 100, IdempotencyKey: "dup-key",
 		})
 	}, time.Millisecond*50)
@@ -136,14 +126,14 @@ func (s *BillWorkflowSuite) Test_DuplicateLineItem_Ignored() {
 
 // Test 4: Activity failure is handled gracefully
 func (s *BillWorkflowSuite) Test_AddItemActivity_Failure() {
-	s.env.OnActivity("AddItemLineActivity", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	s.env.OnActivity(activities.Ref.AddItemLineActivity, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return("", assert.AnError)
 
-	s.env.OnActivity("FinalizeBillActivity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(FinalInvoice{BillID: "bill-1", CurrencyCode: "GEL"}, nil)
+	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(model.FinalInvoice{BillID: "bill-1", CurrencyCode: "GEL"}, nil)
 
 	s.env.RegisterDelayedCallback(func() {
-		s.env.SignalWorkflow("AddLineItem", AddItemRequest{
+		s.env.SignalWorkflow("AddLineItem", model.AddItemRequest{
 			Description: "Fail", AmountMinor: 100, IdempotencyKey: "fail-key",
 		})
 	}, 0)

@@ -3,11 +3,17 @@ package workflow
 import (
 	"time"
 
+	"encore.app/bills/activities"
+	"encore.app/bills/model"
 	"go.temporal.io/sdk/workflow"
 )
 
+var (
+	AddLineItemSignal = "AddLineItem"
+)
+
 func StartBillWorkflow(ctx workflow.Context, billID string, currency string, closeTimeout time.Duration) error {
-	state := BillState{
+	state := model.BillState{
 		Status:       "OPEN",
 		RunningTotal: 0,
 		SeenItems:    map[string]bool{},
@@ -22,7 +28,7 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 	)
 
 	// Signal channel for line items
-	lineItemCh := workflow.GetSignalChannel(ctx, "AddLineItem")
+	lineItemCh := workflow.GetSignalChannel(ctx, AddLineItemSignal)
 
 	// Internal channel so update handler can wake the main loop
 	updateChan := workflow.NewChannel(ctx)
@@ -30,7 +36,7 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 	workflow.SetUpdateHandler(
 		ctx,
 		"CloseBill",
-		func(uctx workflow.Context) (FinalInvoice, error) {
+		func(uctx workflow.Context) (model.FinalInvoice, error) {
 			if state.Status == "CLOSED" {
 				return state.FinalInvoice, nil
 			}
@@ -44,20 +50,20 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 			state.FinalInvoice.TotalMinor = state.RunningTotal
 			state.FinalInvoice.ClosedAt = workflow.Now(uctx)
 
-			var inv FinalInvoice
+			var inv model.FinalInvoice
 			activityCtx := workflow.WithActivityOptions(uctx, workflow.ActivityOptions{
 				StartToCloseTimeout: time.Second * 30,
 			})
 			err := workflow.ExecuteActivity(
 				activityCtx,
-				"FinalizeBillActivity",
+				activities.Ref.FinalizeBillActivity,
 				billID,
 				currency,
 				state.FinalInvoice.LineItems,
 			).Get(uctx, &inv)
 
 			if err != nil {
-				return FinalInvoice{}, err
+				return model.FinalInvoice{}, err
 			}
 
 			state.FinalInvoice = inv
@@ -73,7 +79,7 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 
 		// Handle AddLineItem signal
 		selector.AddReceive(lineItemCh, func(c workflow.ReceiveChannel, more bool) {
-			var req AddItemRequest
+			var req model.AddItemRequest
 			c.Receive(ctx, &req)
 
 			if state.Status != "OPEN" {
@@ -101,7 +107,7 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 			})
 			err := workflow.ExecuteActivity(
 				activityCtx,
-				"AddItemLineActivity",
+				activities.Ref.AddItemLineActivity,
 				billID,
 				req.AmountMinor,
 				currency,
@@ -117,7 +123,7 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 			state.SeenItems[dedupeKey] = true
 			state.RunningTotal += req.AmountMinor
 
-			state.FinalInvoice.LineItems = append(state.FinalInvoice.LineItems, FinalLineItem{
+			state.FinalInvoice.LineItems = append(state.FinalInvoice.LineItems, model.FinalLineItem{
 				ID:          itemID,
 				AmountMinor: req.AmountMinor,
 				Description: req.Description,
@@ -154,7 +160,7 @@ func StartBillWorkflow(ctx workflow.Context, billID string, currency string, clo
 			})
 			err := workflow.ExecuteActivity(
 				activityCtx,
-				"FinalizeBillActivity",
+				activities.Ref.FinalizeBillActivity,
 				billID,
 				currency,
 				state.FinalInvoice.LineItems,

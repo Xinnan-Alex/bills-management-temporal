@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 
+	"encore.app/bills/activities"
 	"encore.app/bills/repository"
 	"encore.app/bills/workflow"
 	"encore.dev"
@@ -54,11 +55,11 @@ func initService() (*Service, error) {
 	repo := repository.NewRepository()
 
 	// Create activities struct with repository dependency
-	activities := &Activities{repo: repo}
+	acts := &activities.Activities{Repo: repo}
 
 	w := worker.New(c, startBillTaskQueue, worker.Options{})
 	w.RegisterWorkflow(workflow.StartBillWorkflow)
-	w.RegisterActivity(activities)
+	w.RegisterActivity(acts)
 
 	if err := w.Start(); err != nil {
 		return nil, fmt.Errorf("start temporal worker: %v", err)

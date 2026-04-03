@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"encore.app/bills/model"
 	"encore.app/bills/workflow"
 	"encore.dev/beta/errs"
 	"encore.dev/storage/sqldb"
@@ -91,7 +92,7 @@ func (s *Service) CloseBill(ctx context.Context, id string) (*CloseBillResponse,
 		return nil, err
 	}
 
-	var finalInvoice workflow.FinalInvoice
+	var finalInvoice model.FinalInvoice
 	if err := updateHandler.Get(ctx, &finalInvoice); err != nil {
 		return nil, err
 	}
@@ -138,7 +139,7 @@ func (r *AddLineItemRequest) Validate() error {
 //
 // encore:api public method=POST path=/v1/bills/:billID/line-items
 func (s *Service) AddItemIntoBill(ctx context.Context, billID string, req *AddLineItemRequest) error {
-	err := s.client.SignalWorkflow(ctx, billID, "", "AddLineItem", workflow.AddItemRequest{
+	err := s.client.SignalWorkflow(ctx, billID, "", workflow.AddLineItemSignal, model.AddItemRequest{
 		Description:    req.Description,
 		AmountMinor:    req.AmountMinor,
 		IdempotencyKey: req.IdempotencyKey,

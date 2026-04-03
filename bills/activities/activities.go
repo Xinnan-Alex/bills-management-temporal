@@ -1,19 +1,23 @@
-package bills
+package activities
 
 import (
 	"context"
 	"time"
 
+	"encore.app/bills/model"
 	"encore.app/bills/repository"
-	"encore.app/bills/workflow"
 )
 
 // Activities holds dependencies for Temporal activities
 type Activities struct {
-	repo *repository.Repository
+	Repo *repository.Repository
 }
 
-func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, currencyCode string, lineItems []workflow.FinalLineItem) (workflow.FinalInvoice, error) {
+// Ref is a nil reference used by workflows to get activity method references.
+// This enables compile-time type checking of activity invocations.
+var Ref *Activities
+
+func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, currencyCode string, lineItems []model.FinalLineItem) (model.FinalInvoice, error) {
 	repoItems := make([]repository.LineItem, len(lineItems))
 	for i, item := range lineItems {
 		repoItems[i] = repository.LineItem{
@@ -24,14 +28,14 @@ func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, cu
 		}
 	}
 
-	bill, err := a.repo.CloseBill(ctx, billID, currencyCode, repoItems)
+	bill, err := a.Repo.CloseBill(ctx, billID, currencyCode, repoItems)
 	if err != nil {
-		return workflow.FinalInvoice{}, err
+		return model.FinalInvoice{}, err
 	}
 
-	wfItems := make([]workflow.FinalLineItem, len(bill.LineItems))
+	wfItems := make([]model.FinalLineItem, len(bill.LineItems))
 	for i, item := range bill.LineItems {
-		wfItems[i] = workflow.FinalLineItem{
+		wfItems[i] = model.FinalLineItem{
 			ID:          item.ID,
 			AmountMinor: item.AmountMinor,
 			Description: item.Description,
@@ -44,7 +48,7 @@ func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, cu
 		closedAt = *bill.ClosedAt
 	}
 
-	return workflow.FinalInvoice{
+	return model.FinalInvoice{
 		BillID:       bill.BillID,
 		CurrencyCode: bill.CurrencyCode,
 		TotalMinor:   bill.TotalMinor,
@@ -54,5 +58,5 @@ func (a *Activities) FinalizeBillActivity(ctx context.Context, billID string, cu
 }
 
 func (a *Activities) AddItemLineActivity(ctx context.Context, billID string, amountMinor int64, currencyCode string, description string, idempotencyKey string) (string, error) {
-	return a.repo.AddLineItem(ctx, billID, amountMinor, currencyCode, description, idempotencyKey)
+	return a.Repo.AddLineItem(ctx, billID, amountMinor, currencyCode, description, idempotencyKey)
 }
