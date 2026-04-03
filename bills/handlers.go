@@ -30,6 +30,7 @@ func (r *CreateBillRequest) Validate() error {
 // CreateBillResponse represents the response when creating a bill
 type CreateBillResponse struct {
 	BillID string `json:"billId"`
+	Status int    `encore:"httpstatus"`
 }
 
 // CloseBillResponse represents the response when closing a bill
@@ -69,7 +70,10 @@ func (s *Service) CreateBill(ctx context.Context, req *CreateBillRequest) (*Crea
 		return nil, err
 	}
 
-	return &CreateBillResponse{BillID: billID}, nil
+	return &CreateBillResponse{
+		BillID: billID,
+		Status: 201,
+	}, nil
 }
 
 // CloseBill closes an open bill by sending an update to the Temporal workflow

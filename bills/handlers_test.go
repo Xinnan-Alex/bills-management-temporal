@@ -1,9 +1,17 @@
 package bills
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
+	"encore.app/bills/model"
+	"encore.app/bills/repository"
 	"encore.dev/beta/errs"
+	"github.com/stretchr/testify/mock"
+	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/sdk/mocks"
 )
 
 func TestCreateBillRequest_Validate(t *testing.T) {
@@ -119,5 +127,229 @@ func TestListBillsRequest_Validate(t *testing.T) {
 				t.Errorf("expected no error, got %v", err)
 			}
 		})
+	}
+}
+
+func newMockService(tc *mocks.Client) *Service {
+	return &Service{
+		client:     tc,
+		repository: repository.NewRepository(),
+	}
+}
+
+// --- CreateBill tests ---
+
+func TestCreateBill(t *testing.T) {
+	ctx := context.Background()
+	testCases := &mocks.Client{}
+	run := &mocks.WorkflowRun{}
+	testCases.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(run, nil)
+	mockService := newMockService(testCases)
+
+	resp, err := mockService.CreateBill(ctx, &CreateBillRequest{CurrencyCode: "USD"})
+	if err != nil {
+		t.Fatalf("CreateBill failed: %v", err)
+	}
+	if resp.BillID == "" {
+		t.Error("expected non-empty bill ID")
+	}
+	if resp.Status != 201 {
+		t.Errorf("expected status 201, got %d", resp.Status)
+	}
+	testCases.AssertExpectations(t)
+}
+
+func TestCreateBill_WorkflowStartFails(t *testing.T) {
+	ctx := context.Background()
+	testCases := &mocks.Client{}
+	testCases.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("temporal unavailable"))
+	mockService := newMockService(testCases)
+
+	_, err := mockService.CreateBill(ctx, &CreateBillRequest{CurrencyCode: "GEL"})
+	if err == nil {
+		t.Fatal("expected error when workflow start fails")
+	}
+}
+
+// --- CloseBill tests ---
+
+func TestCloseBill(t *testing.T) {
+	ctx := context.Background()
+	mockClient := &mocks.Client{}
+	run := &mocks.WorkflowRun{}
+	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(run, nil)
+
+	updateHandle := &mocks.WorkflowUpdateHandle{}
+	updateHandle.On("Get", mock.Anything, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+		inv := args.Get(1).(*model.FinalInvoice)
+		*inv = model.FinalInvoice{
+			BillID:       "test-bill",
+			CurrencyCode: "USD",
+			TotalMinor:   1500,
+		}
+	})
+	mockClient.On("UpdateWorkflow", mock.Anything, mock.Anything).Return(updateHandle, nil)
+	svc := newMockService(mockClient)
+
+	created, err := svc.CreateBill(ctx, &CreateBillRequest{CurrencyCode: "USD"})
+	if err != nil {
+		t.Fatalf("CreateBill failed: %v", err)
+	}
+
+	resp, err := svc.CloseBill(ctx, created.BillID)
+	if err != nil {
+		t.Fatalf("CloseBill failed: %v", err)
+	}
+	if resp.BillID != "test-bill" {
+		t.Errorf("expected bill ID test-bill, got %s", resp.BillID)
+	}
+	if resp.TotalAmountMinor != 1500 {
+		t.Errorf("expected total 1500, got %d", resp.TotalAmountMinor)
+	}
+	mockClient.AssertExpectations(t)
+}
+
+func TestCloseBill_WorkflowNotFound(t *testing.T) {
+	ctx := context.Background()
+	mockClient := &mocks.Client{}
+	mockClient.On("UpdateWorkflow", mock.Anything, mock.Anything).Return(nil, serviceerror.NewNotFound("workflow not found"))
+	mockService := newMockService(mockClient)
+
+	_, err := mockService.CloseBill(ctx, "nonexistent-bill")
+	if err == nil {
+		t.Fatal("expected error for nonexistent workflow")
+	}
+	var e *errs.Error
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *errs.Error, got %T", err)
+	}
+	if e.Code != errs.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition, got %v", e.Code)
+	}
+}
+
+// --- AddItemIntoBill tests ---
+
+func TestAddItemIntoBill(t *testing.T) {
+	ctx := context.Background()
+	mockClient := &mocks.Client{}
+	mockClient.On("SignalWorkflow", mock.Anything, "bill-123", "", "AddLineItem", mock.Anything).Return(nil)
+	mockService := newMockService(mockClient)
+
+	err := mockService.AddItemIntoBill(ctx, "bill-123", &AddLineItemRequest{
+		Description:    "Test fee",
+		AmountMinor:    500,
+		IdempotencyKey: "key-1",
+	})
+	if err != nil {
+		t.Fatalf("AddItemIntoBill failed: %v", err)
+	}
+	mockClient.AssertExpectations(t)
+}
+
+func TestAddItemIntoBill_WorkflowNotFound(t *testing.T) {
+	ctx := context.Background()
+	mockClient := &mocks.Client{}
+	mockClient.On("SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(serviceerror.NewNotFound("workflow not found"))
+	mockService := newMockService(mockClient)
+
+	err := mockService.AddItemIntoBill(ctx, "closed-bill", &AddLineItemRequest{
+		Description:    "Fee",
+		AmountMinor:    100,
+		IdempotencyKey: "k",
+	})
+	if err == nil {
+		t.Fatal("expected error for closed bill")
+	}
+	var e *errs.Error
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *errs.Error, got %T", err)
+	}
+	if e.Code != errs.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition, got %v", e.Code)
+	}
+}
+
+// --- GetBill tests ---
+
+func TestGetBill(t *testing.T) {
+	ctx := context.Background()
+	mockClient := &mocks.Client{}
+	run := &mocks.WorkflowRun{}
+	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(run, nil)
+	mockService := newMockService(mockClient)
+
+	created, err := mockService.CreateBill(ctx, &CreateBillRequest{CurrencyCode: "GEL"})
+	if err != nil {
+		t.Fatalf("CreateBill failed: %v", err)
+	}
+
+	resp, err := mockService.GetBill(ctx, created.BillID)
+	if err != nil {
+		t.Fatalf("GetBill failed: %v", err)
+	}
+	if resp.BillID != created.BillID {
+		t.Errorf("expected bill ID %s, got %s", created.BillID, resp.BillID)
+	}
+	if resp.Status != "OPEN" {
+		t.Errorf("expected OPEN, got %s", resp.Status)
+	}
+	if resp.CurrencyCode != "GEL" {
+		t.Errorf("expected GEL, got %s", resp.CurrencyCode)
+	}
+}
+
+func TestGetBill_NotFound(t *testing.T) {
+	ctx := context.Background()
+	mockService := newMockService(&mocks.Client{})
+
+	_, err := mockService.GetBill(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent bill")
+	}
+}
+
+// --- ListBills tests ---
+
+func TestListBills_Empty(t *testing.T) {
+	ctx := context.Background()
+	mockService := newMockService(&mocks.Client{})
+
+	resp, err := mockService.ListBills(ctx, &ListBillsRequest{})
+	if err != nil {
+		t.Fatalf("ListBills failed: %v", err)
+	}
+	if resp.Bills == nil {
+		t.Error("expected non-nil bills slice")
+	}
+}
+
+func TestListBills_WithFilter(t *testing.T) {
+	ctx := context.Background()
+	mockClient := &mocks.Client{}
+	run := &mocks.WorkflowRun{}
+	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(run, nil)
+	mockService := newMockService(mockClient)
+
+	_, err := mockService.CreateBill(ctx, &CreateBillRequest{CurrencyCode: "USD"})
+	if err != nil {
+		t.Fatalf("CreateBill failed: %v", err)
+	}
+	_, err = mockService.CreateBill(ctx, &CreateBillRequest{CurrencyCode: "GEL"})
+	if err != nil {
+		t.Fatalf("CreateBill failed: %v", err)
+	}
+
+	resp, err := mockService.ListBills(ctx, &ListBillsRequest{Status: "OPEN"})
+	if err != nil {
+		t.Fatalf("ListBills failed: %v", err)
+	}
+	if len(resp.Bills) < 2 {
+		t.Errorf("expected at least 2 open bills, got %d", len(resp.Bills))
+	}
+	for _, b := range resp.Bills {
+		if b.Status != "OPEN" {
+			t.Errorf("expected all bills OPEN, got %s", b.Status)
+		}
 	}
 }
