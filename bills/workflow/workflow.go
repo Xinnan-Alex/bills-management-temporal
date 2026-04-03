@@ -60,6 +60,31 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 	// Internal channel so update handler can wake the main loop
 	updateChan := workflow.NewChannel(ctx)
 
+	// Shared finalize logic used by both manual close and auto-close
+	finalizeBill := func(wCtx workflow.Context) (model.FinalInvoice, error) {
+		state.FinalInvoice.BillID = billID
+		state.FinalInvoice.CurrencyCode = currency
+		state.FinalInvoice.TotalMinor = state.RunningTotal
+		state.FinalInvoice.ClosedAt = workflow.Now(wCtx)
+
+		var inv model.FinalInvoice
+		activityCtx := workflow.WithActivityOptions(wCtx, activityOpts)
+		err := workflow.ExecuteActivity(
+			activityCtx,
+			activities.Ref.FinalizeBillActivity,
+			model.FinalizeBillActivityInput{
+				BillID:       billID,
+				CurrencyCode: currency,
+				LineItems:    state.FinalInvoice.LineItems,
+			},
+		).Get(wCtx, &inv)
+		if err != nil {
+			return model.FinalInvoice{}, err
+		}
+		state.FinalInvoice = inv
+		return inv, nil
+	}
+
 	workflow.SetUpdateHandler(
 		ctx,
 		"CloseBill",
@@ -71,30 +96,7 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 			state.Status = "CLOSED"
 			updateChan.Send(uctx, true)
 
-			// Build final invoice from current in-memory state
-			state.FinalInvoice.BillID = billID
-			state.FinalInvoice.CurrencyCode = currency
-			state.FinalInvoice.TotalMinor = state.RunningTotal
-			state.FinalInvoice.ClosedAt = workflow.Now(uctx)
-
-			var inv model.FinalInvoice
-			activityCtx := workflow.WithActivityOptions(uctx, activityOpts)
-			err := workflow.ExecuteActivity(
-				activityCtx,
-				activities.Ref.FinalizeBillActivity,
-				model.FinalizeBillActivityInput{
-					BillID:       billID,
-					CurrencyCode: currency,
-					LineItems:    state.FinalInvoice.LineItems,
-				},
-			).Get(uctx, &inv)
-
-			if err != nil {
-				return model.FinalInvoice{}, err
-			}
-
-			state.FinalInvoice = inv
-			return inv, nil
+			return finalizeBill(uctx)
 		},
 	)
 
@@ -178,24 +180,7 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 			logger.Info("Close time reached, auto-closing bill", "billID", billID)
 			state.Status = "CLOSED"
 
-			// Build final invoice from current state
-			state.FinalInvoice.BillID = billID
-			state.FinalInvoice.CurrencyCode = currency
-			state.FinalInvoice.TotalMinor = state.RunningTotal
-			state.FinalInvoice.ClosedAt = workflow.Now(ctx)
-
-			// Finalize to database (same as manual close)
-			activityCtx := workflow.WithActivityOptions(ctx, activityOpts)
-			err := workflow.ExecuteActivity(
-				activityCtx,
-				activities.Ref.FinalizeBillActivity,
-				model.FinalizeBillActivityInput{
-					BillID:       billID,
-					CurrencyCode: currency,
-					LineItems:    state.FinalInvoice.LineItems,
-				},
-			).Get(ctx, &state.FinalInvoice)
-
+			_, err := finalizeBill(ctx)
 			if err != nil {
 				logger.Error("Failed to finalize bill on auto-close", "billID", billID, "error", err)
 				autoCloseErr = err
