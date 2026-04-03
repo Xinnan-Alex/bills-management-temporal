@@ -26,6 +26,8 @@ type StartBillWorkflowInput struct {
 	BillID       string
 	CurrencyCode string
 	CloseTimeout time.Duration
+	// CarryOverState is populated when the workflow continues-as-new
+	CarryOverState *BillState
 }
 
 // FinalizeBillActivityInput is the single input struct for FinalizeBillActivity

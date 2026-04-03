@@ -10,7 +10,8 @@ import (
 )
 
 var (
-	AddLineItemSignal = "AddLineItem"
+	AddLineItemSignal   = "AddLineItem"
+	maxSignalsBeforeCAN = 1000
 )
 
 func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput) error {
@@ -18,11 +19,19 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 	currency := input.CurrencyCode
 	closeTimeout := input.CloseTimeout
 
-	state := model.BillState{
-		Status:       "OPEN",
-		RunningTotal: 0,
-		SeenItems:    map[string]bool{},
+	// Restore state from continue-as-new or initialize fresh
+	var state model.BillState
+	if input.CarryOverState != nil {
+		state = *input.CarryOverState
+	} else {
+		state = model.BillState{
+			Status:       "OPEN",
+			RunningTotal: 0,
+			SeenItems:    map[string]bool{},
+		}
 	}
+
+	signalCount := 0
 
 	logger := workflow.GetLogger(ctx)
 	logger.Info(
@@ -142,6 +151,7 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 
 			state.SeenItems[dedupeKey] = true
 			state.RunningTotal += req.AmountMinor
+			signalCount++
 
 			state.FinalInvoice.LineItems = append(state.FinalInvoice.LineItems, model.FinalLineItem{
 				ID:          itemID,
@@ -201,6 +211,20 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 
 		// Wait for one event: signal, timer, or update
 		selector.Select(ctx)
+
+		// Continue-as-new to prevent unbounded history growth
+		if signalCount >= maxSignalsBeforeCAN && state.Status == "OPEN" {
+			logger.Info("Continuing as new to compact history",
+				"billID", billID,
+				"signalCount", signalCount,
+			)
+			return workflow.NewContinueAsNewError(ctx, StartBillWorkflow, model.StartBillWorkflowInput{
+				BillID:         billID,
+				CurrencyCode:   currency,
+				CloseTimeout:   closeTimeout,
+				CarryOverState: &state,
+			})
+		}
 	}
 
 	// Drain any buffered signals that arrived before the workflow closed
