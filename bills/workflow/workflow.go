@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"time"
 
 	"encore.app/bills/activities"
@@ -85,18 +86,22 @@ func StartBillWorkflow(ctx workflow.Context, input model.StartBillWorkflowInput)
 		return inv, nil
 	}
 
-	workflow.SetUpdateHandler(
+	workflow.SetUpdateHandlerWithOptions(
 		ctx,
 		"CloseBill",
 		func(uctx workflow.Context) (model.FinalInvoice, error) {
-			if state.Status == "CLOSED" {
-				return state.FinalInvoice, nil
-			}
-
 			state.Status = "CLOSED"
 			updateChan.Send(uctx, true)
 
 			return finalizeBill(uctx)
+		},
+		workflow.UpdateHandlerOptions{
+			Validator: func(ctx workflow.Context) error {
+				if state.Status == "CLOSED" {
+					return fmt.Errorf("bill is already closed")
+				}
+				return nil
+			},
 		},
 	)
 

@@ -2,21 +2,23 @@ package bills
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 
 	"encore.dev/beta/auth"
 	"encore.dev/beta/errs"
-	"github.com/google/uuid"
 )
 
 //encore:authhandler
 func AuthHandler(ctx context.Context, token string) (auth.UID, error) {
-	// Validate the token and look up the user id and user data,
-	// for example by calling Firebase Auth.
 	if token != secrets.SuperSecretKey {
 		return "", &errs.Error{
 			Code:    errs.Unauthenticated,
 			Message: "invalid token",
 		}
 	}
-	return auth.UID(uuid.New().String()), nil
+	// Derive a deterministic UID from the token so the same token
+	// always maps to the same user identity.
+	hash := sha256.Sum256([]byte(token))
+	return auth.UID(fmt.Sprintf("%x", hash[:16])), nil
 }

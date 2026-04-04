@@ -176,3 +176,50 @@ func (s *BillWorkflowSuite) Test_AddItemActivity_Failure() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 }
+
+// Test 5: Update validator rejects CloseBill on already-closed bill
+func (s *BillWorkflowSuite) Test_CloseBill_AlreadyClosed_Rejected() {
+	// Mock FinalizeBillActivity for the first close
+	s.env.OnActivity(activities.Ref.FinalizeBillActivity, mock.Anything, mock.Anything).
+		Return(model.FinalInvoice{
+			BillID:       "bill-1",
+			CurrencyCode: "USD",
+			TotalMinor:   0,
+			ClosedAt:     time.Now(),
+		}, nil)
+
+	// First close: should succeed
+	s.env.RegisterDelayedCallback(func() {
+		s.env.UpdateWorkflow("CloseBill", "update-1", &testsuite.TestUpdateCallback{
+			OnAccept: func() {},
+			OnComplete: func(result interface{}, err error) {
+				s.NoError(err)
+			},
+		})
+	}, time.Millisecond*0)
+
+	// Second close: should be rejected by the validator
+	s.env.RegisterDelayedCallback(func() {
+		s.env.UpdateWorkflow("CloseBill", "update-2", &testsuite.TestUpdateCallback{
+			OnReject: func(err error) {
+				s.Error(err)
+				s.Contains(err.Error(), "already closed")
+			},
+			OnAccept: func() {
+				s.Fail("expected update to be rejected, but it was accepted")
+			},
+			OnComplete: func(result interface{}, err error) {
+				s.Fail("expected update to be rejected, but it completed")
+			},
+		})
+	}, time.Millisecond*100)
+
+	s.env.ExecuteWorkflow(StartBillWorkflow, model.StartBillWorkflowInput{
+		BillID:       "bill-1",
+		CurrencyCode: "USD",
+		CloseTimeout: 1 * time.Hour,
+	})
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+}

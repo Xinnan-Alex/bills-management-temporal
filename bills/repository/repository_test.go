@@ -154,6 +154,34 @@ func TestCloseBill(t *testing.T) {
 	}
 }
 
+func TestDeleteBill(t *testing.T) {
+	ctx := context.Background()
+	r := NewRepository()
+
+	billID, err := r.StoreBill(ctx, "USD")
+	if err != nil {
+		t.Fatalf("StoreBill failed: %v", err)
+	}
+
+	// Verify bill exists
+	_, err = r.GetBill(ctx, billID)
+	if err != nil {
+		t.Fatalf("GetBill failed: %v", err)
+	}
+
+	// Delete it
+	err = r.DeleteBill(ctx, billID)
+	if err != nil {
+		t.Fatalf("DeleteBill failed: %v", err)
+	}
+
+	// Verify bill no longer exists
+	_, err = r.GetBill(ctx, billID)
+	if err == nil {
+		t.Fatal("expected error for deleted bill")
+	}
+}
+
 func TestGetBill_NotFound(t *testing.T) {
 	ctx := context.Background()
 	r := NewRepository()

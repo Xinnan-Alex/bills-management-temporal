@@ -3,6 +3,7 @@ package bills
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"encore.app/bills/model"
@@ -71,7 +72,11 @@ func (s *Service) CreateBill(ctx context.Context, req *CreateBillRequest) (*Crea
 		CloseTimeout: closeTimeout,
 	})
 	if err != nil {
-		return nil, err
+		// Clean up the orphaned DB row since the workflow failed to start
+		if delErr := s.repository.DeleteBill(ctx, billID); delErr != nil {
+			return nil, fmt.Errorf("workflow start failed: %v; cleanup failed: %v", err, delErr)
+		}
+		return nil, fmt.Errorf("start bill workflow: %v", err)
 	}
 
 	return &CreateBillResponse{

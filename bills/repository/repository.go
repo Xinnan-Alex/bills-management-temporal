@@ -43,6 +43,12 @@ func NewRepository() *Repository {
 	return &Repository{db: billsDB}
 }
 
+// DeleteBill removes a bill from the database (used to clean up orphaned rows)
+func (r *Repository) DeleteBill(ctx context.Context, billID string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM bills WHERE id = $1`, billID)
+	return err
+}
+
 // StoreBill saves a bill to the database with an auto-generated ID
 func (r *Repository) StoreBill(ctx context.Context, currencyCode string) (string, error) {
 	billID := uuid.New().String()

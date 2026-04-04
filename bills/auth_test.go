@@ -16,6 +16,15 @@ func TestAuthHandler_ValidToken(t *testing.T) {
 	if uid == "" {
 		t.Fatal("expected non-empty UID")
 	}
+
+	// Verify deterministic: same token should produce the same UID
+	uid2, err := AuthHandler(ctx, "superSecretToken")
+	if err != nil {
+		t.Fatalf("expected no error on second call, got %v", err)
+	}
+	if uid != uid2 {
+		t.Errorf("expected deterministic UID, got %s and %s", uid, uid2)
+	}
 }
 
 func TestAuthHandler_InvalidToken(t *testing.T) {
