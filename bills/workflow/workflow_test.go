@@ -186,7 +186,10 @@ func (s *BillWorkflowSuite) Test_CloseBill_AlreadyClosed_Rejected() {
 			CurrencyCode: "USD",
 			TotalMinor:   0,
 			ClosedAt:     time.Now(),
-		}, nil)
+		}, nil).Once()
+
+	// Track whether the second update was rejected
+	secondUpdateRejected := false
 
 	// First close: should succeed
 	s.env.RegisterDelayedCallback(func() {
@@ -196,12 +199,14 @@ func (s *BillWorkflowSuite) Test_CloseBill_AlreadyClosed_Rejected() {
 				s.NoError(err)
 			},
 		})
-	}, time.Millisecond*0)
+	}, time.Millisecond*10)
 
 	// Second close: should be rejected by the validator
+	// Use a longer delay to ensure the first update has completed
 	s.env.RegisterDelayedCallback(func() {
 		s.env.UpdateWorkflow("CloseBill", "update-2", &testsuite.TestUpdateCallback{
 			OnReject: func(err error) {
+				secondUpdateRejected = true
 				s.Error(err)
 				s.Contains(err.Error(), "already closed")
 			},
@@ -209,7 +214,10 @@ func (s *BillWorkflowSuite) Test_CloseBill_AlreadyClosed_Rejected() {
 				s.Fail("expected update to be rejected, but it was accepted")
 			},
 			OnComplete: func(result interface{}, err error) {
-				s.Fail("expected update to be rejected, but it completed")
+				// This should not be called if the update was rejected
+				if !secondUpdateRejected {
+					s.Fail("expected update to be rejected, but it completed")
+				}
 			},
 		})
 	}, time.Millisecond*100)

@@ -9,7 +9,10 @@ import (
 
 func TestAuthHandler_ValidToken(t *testing.T) {
 	ctx := context.Background()
-	uid, err := AuthHandler(ctx, "superSecretToken")
+	// Use the actual secret value from the environment
+	validToken := secrets.SuperSecretKey
+
+	uid, err := AuthHandler(ctx, validToken)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -18,7 +21,7 @@ func TestAuthHandler_ValidToken(t *testing.T) {
 	}
 
 	// Verify deterministic: same token should produce the same UID
-	uid2, err := AuthHandler(ctx, "superSecretToken")
+	uid2, err := AuthHandler(ctx, validToken)
 	if err != nil {
 		t.Fatalf("expected no error on second call, got %v", err)
 	}
